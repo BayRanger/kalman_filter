@@ -213,14 +213,16 @@ void ParticleFilter::likelihoodFieldRangeFinderModel(
 			double prob =0;
 			for (int i = 0; i<scan_count; i=i+this->laserSkip)
 				{
-					if (laserScan->ranges[i]<laserScan->range_min && laserScan->ranges[i]>laserScan->range_max)
-						{
-							continue;
-						}
+ 
 					int idx_x = (this->particleSet[i]->x+laserScan->ranges[i]*cos(laserScan->angle_min+laserScan->angle_increment*i))/this->likelihoodFieldResolution;
 					int idx_y = (this->particleSet[i]->y+laserScan->ranges[i]*sin(laserScan->angle_min+laserScan->angle_increment*i))/this->likelihoodFieldResolution;
+					bool in_range = (laserScan->ranges[i]>laserScan->range_min && laserScan->ranges[i]<laserScan->range_max && );
 					int idx = computeMapIndex(likelihoodFieldWidth,likelihoodFieldHeight, idx_x, idx_y);
-					this->particleSet[i]->weight += this->likelihoodField[idx];
+					bool in_map = idx >=0 && idx<likelihoodFieldHeight * likelihoodFieldWidth;
+					if(in_map && in_range)
+						{
+							this->particleSet[i]->weight += this->likelihoodField[idx];
+						}
 
 					else
 						{
@@ -229,11 +231,6 @@ void ParticleFilter::likelihoodFieldRangeFinderModel(
 
 						}	
 				}
-
-
-
-
-	// TODO: here comes your code
 
 
 }
@@ -324,6 +321,7 @@ void ParticleFilter::resample() {
 	}
 
 	this->particleSet = newSet;
+	//TODO: discuss if we need to delete the previous particle
 
 }
 
