@@ -208,6 +208,7 @@ void ParticleFilter::measurementModel(
 void ParticleFilter::likelihoodFieldRangeFinderModel(
 		const sensor_msgs::LaserScanConstPtr & laserScan) {
 		int scan_count = (laserScan->angle_max - laserScan->angle_min)/laserScan->angle_increment;
+		scan_count =laser->ranges.size();
 		for (int j = 0; j < numberOfParticles; i++) {
 			double prob =0;
 			for (int i = 0; i<scan_count; i=i+this->laserSkip)
@@ -221,8 +222,13 @@ void ParticleFilter::likelihoodFieldRangeFinderModel(
 					int idx = computeMapIndex(likelihoodFieldWidth,likelihoodFieldHeight, idx_x, idx_y);
 					this->particleSet[i]->weight += this->likelihoodField[idx];
 
+					else
+						{
+							// Add a negative weight as punishment
+							particleWeight +=log(1E-5);
+
+						}	
 				}
-			}
 
 
 
@@ -257,6 +263,8 @@ void ParticleFilter::sampleMotionModel(double oldX, double oldY,
 void ParticleFilter::sampleMotionModelOdometry(double oldX, double oldY,
 		double oldTheta, double newX, double newY, double newTheta) {
 	// TODO: here comes your code
+		if(isnan(oldX) || isnan(oldY) || isnan(oldTheta)|| isnan(newTheta) || isnan(newX) || isnan(newY))
+		return ;
 
 	//Be careful! the implementaion of motion model is based on all the particles!
 	//Knowing what u r doing!
@@ -285,27 +293,37 @@ void ParticleFilter::sampleMotionModelOdometry(double oldX, double oldY,
  *  The stochastic importance resampling.
  */
 void ParticleFilter::resample() {
-	// TODO: here comes your code
-	double weight_sum =0;
-	for (int i = 0; i < numberOfParticles; i++) {
-		weight += this->particleSet[i]->weight;
+
+	std::vector<Particle*> newSet;
+	double weight_sum = 0;
+	int numParticles = getNumberOfParticles();
+	double randNumber = Util::uniformRandom(0, 1.0f/(double)particleSet.size() );
+
+	// Cumulative distribution function for resampling.
+	double cdf[numParticles];
+
+	cdf[0] = (this->particleSet[0]->weight / this->sumOfParticleWeights);
+	// Fill it up with the sum of the normalized weights <= less then i for each i.
+	for(int i=1; i < numParticles; i++){
+		cdf[i] = cdf[i-1] + this->particleSet[i]->weight / this->sumOfParticleWeights;
 	}
-	double weight_avg = weight_mean/numberOfParticles;
-	//int resample_count
-	int sample_count =0;
-	double sample_weight= 0;
 
-	for (int i = 0; i < numberOfParticles; i++) {
-		sample_weight += this->particleSet[i]->weight;
-		while (sample_weight>=(sample_count+1)*weight_avg)
-		{
-			this->particleSet[sample_count] = this->particleSet[i];
-			sample_count++;
+	double curThreshold = randNumber;
+	for(int j=0, i=0; j < particleSet.size(); j++){
+
+		// Skip until the next threshold reached.
+		while(curThreshold > cdf[i]){
+			i++;
 		}
+		// We didn't update the weight as 1/n, since it yields bad results
+		Particle* p = new Particle(this->particleSet[i]); 
+		newSet.push_back(p);
 
+		// Increment to the next threshold.
+		curThreshold += 1.0f/(double)particleSet.size();
+	}
 
- 	}
-
+	this->particleSet = newSet;
 
 }
 
