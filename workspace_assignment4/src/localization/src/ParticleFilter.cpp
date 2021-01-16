@@ -54,13 +54,29 @@ void ParticleFilter::initParticlesUniform() {
     int mapWidth, mapHeight;
     double mapResolution;
     this->getLikelihoodField(mapWidth, mapHeight,mapResolution);
+	double weight =1.0/(numberOfParticles);
+	for (int i = 0; i < numberOfParticles; i++) {
+		double x_val = Util::uniformRandom(0,mapWidth * mapResolution);
+		double y_val = Util::uniformRandom(0,mapHeight * mapResolution);
+		double theta_val = Util::uniformRandom(-M_PI, M_PI);
+		*(this->particleSet[i]) = Particle(x_val,y_val,theta_val,weight);
+	}
 
-	// TODO: here comes your code
+
 }
 
 void ParticleFilter::initParticlesGaussian(double mean_x, double mean_y,
 		double mean_theta, double std_xx, double std_yy, double std_tt) {
 	// TODO: here comes your code
+	double weight =1.0/(numberOfParticles);
+	for (int i = 0; i < numberOfParticles; i++) {
+		//Particle* p;
+	double x_val = Util::gaussianRandom(mean_x, std_xx);
+	double y_val = Util::gaussianRandom(mean_y, std_yy);
+	double theta_val = Util::gaussianRandom(mean_theta, std_tt);
+	*(this->particleSet[i]) = Particle(x_val,y_val,theta_val,weight);
+	}
+
 }
 
 /**
@@ -78,7 +94,6 @@ void ParticleFilter::setMeasurementModelLikelihoodField(
 
     // calculates the distance map and stores it in member variable 'distMap'
 	// for every map position it contains the distance to the nearest occupied cell.
-	calculateDistanceMap(map);
 
     // Here you have to create your likelihood field
 	// HINT0: sigmaHit is given in meters. You have to take into account the resolution of the likelihood field to apply it.
@@ -90,6 +105,14 @@ void ParticleFilter::setMeasurementModelLikelihoodField(
 	// scan, instead of multiplying the probabilities, because: log(a*b) = log(a)+log(b).
 
 	// TODO: here comes your code
+	calculateDistanceMap(map);
+	for (int x = 0; x < likelihoodFieldWidth; x++) {
+		for (int y = 0; y < likelihoodFieldHeight; y++) {
+			int idx =  x + y * likelihoodFieldWidth;
+			double p_hit = Util::gaussian(distMap[idx],sigma * this->likelihoodFieldResolution, 0);
+			this->likelihoodField[idx] = log(p_hit *(1-zRand)+ zRand);
+		}
+	}
 	
 	ROS_INFO("...DONE creating likelihood field!");
 }
@@ -184,8 +207,28 @@ void ParticleFilter::measurementModel(
  */
 void ParticleFilter::likelihoodFieldRangeFinderModel(
 		const sensor_msgs::LaserScanConstPtr & laserScan) {
+		int scan_count = (laserScan->angle_max - laserScan->angle_min)/laserScan->angle_increment;
+		for (int j = 0; j < numberOfParticles; i++) {
+			double prob =0;
+			for (int i = 0; i<scan_count; i=i+this->laserSkip)
+				{
+					if (laserScan->ranges[i]<laserScan->range_min && laserScan->ranges[i]>laserScan->range_max)
+						{
+							continue;
+						}
+					int idx_x = (this->particleSet[i]->x+laserScan->ranges[i]*cos(laserScan->angle_min+laserScan->angle_increment*i))/this->likelihoodFieldResolution;
+					int idx_y = (this->particleSet[i]->y+laserScan->ranges[i]*sin(laserScan->angle_min+laserScan->angle_increment*i))/this->likelihoodFieldResolution;
+					int idx = computeMapIndex(likelihoodFieldWidth,likelihoodFieldHeight, idx_x, idx_y);
+					this->particleSet[i]->weight += this->likelihoodField[idx];
+
+				}
+			}
+
+
+
 
 	// TODO: here comes your code
+
 
 }
 
@@ -205,6 +248,7 @@ void ParticleFilter::setMotionModelOdometry(double alpha1, double alpha2,
 void ParticleFilter::sampleMotionModel(double oldX, double oldY,
 		double oldTheta, double newX, double newY, double newTheta) {
 	sampleMotionModelOdometry(oldX, oldY, oldTheta, newX, newY, newTheta);
+
 }
 
 /**
@@ -213,6 +257,28 @@ void ParticleFilter::sampleMotionModel(double oldX, double oldY,
 void ParticleFilter::sampleMotionModelOdometry(double oldX, double oldY,
 		double oldTheta, double newX, double newY, double newTheta) {
 	// TODO: here comes your code
+
+	//Be careful! the implementaion of motion model is based on all the particles!
+	//Knowing what u r doing!
+	double delta_trans = std::sqrt((newX-oldX)* (newX-oldX)+(newY-oldY)*(newY-oldY));
+	double delta_rot1 = atan2(newY- oldY, newX - oldX);
+	double delta_rot2 = (newTheta - oldTheta) - delta_rot1;
+	//TODO: should we unwarp the angle
+	
+
+ 	for (int i = 0; i < numberOfParticles; i++) {
+			//Particle* p;
+		double delta_rot1_hat = delta_rot1 + Util::gaussianRandom(0, std::abs(this->odomAlpha1*delta_rot1) + this->odomAlpha2 * delta_trans);
+		delta_rot1_hat = Util::normalizeTheta(delta_rot1_hat);
+		double delta_trans_hat = delta_trans + Util::gaussianRandom(0,this->odomAlpha2 * delta_trans+ this->odomAlpha4*std::abs(delta_rot1 + delta_rot2));
+		double delta_rot2 = delta_rot2 + Util::gaussianRandom(0,this->odomAlpha1 * std::abs(delta_rot2)+ this->odomAlpha2 * delta_trans); 
+		delta_rot2 = Util::normalizeTheta(delta_rot2);
+
+		this->particleSet[i]->x += delta_trans_hat * cos(this->particleSet[i]->theta + delta_rot1);
+		this->particleSet[i]->y += delta_trans_hat * sin(this->particleSet[i]->theta + delta_rot1);
+		this->particleSet[i]->theta += delta_rot1_hat + delta_rot2_hat;
+		this->particleSet[i]->theta = Util::normalizeTheta(this->particleSet[i]->theta);
+		}
 }
 
 /**
@@ -220,9 +286,38 @@ void ParticleFilter::sampleMotionModelOdometry(double oldX, double oldY,
  */
 void ParticleFilter::resample() {
 	// TODO: here comes your code
+	double weight_sum =0;
+	for (int i = 0; i < numberOfParticles; i++) {
+		weight += this->particleSet[i]->weight;
+	}
+	double weight_avg = weight_mean/numberOfParticles;
+	//int resample_count
+	int sample_count =0;
+	double sample_weight= 0;
+
+	for (int i = 0; i < numberOfParticles; i++) {
+		sample_weight += this->particleSet[i]->weight;
+		while (sample_weight>=(sample_count+1)*weight_avg)
+		{
+			this->particleSet[sample_count] = this->particleSet[i];
+			sample_count++;
+		}
+
+
+ 	}
+
+
 }
 
 Particle* ParticleFilter::getBestHypothesis() {
+	double max_weight = 0;
+ 		for (int i = 0; i < numberOfParticles; i++) {
+		if (this->particleSet[i]->weight>max_weight)
+		{
+			this->bestHypothesis = this->particleSet[i];
+			max_weight = this->particleSet[i]->weight;
+		}
+	}
 	return this->bestHypothesis;
 }
 
